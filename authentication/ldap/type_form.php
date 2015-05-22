@@ -15,7 +15,7 @@
   </div>
   <div class='form-group'>
     <?= $form->label('ldapBindPassword', t('LDAP Bind Password')) ?>
-    <?= $form->text('ldapBindPassword', $ldapBindPassword) ?>
+    <?= $form->password('ldapBindPassword', $ldapBindPassword) ?>
   </div>
   <div class='form-group'>
     <?= $form->label('ldapSearchFilter', t('LDAP Search Filter')) ?>
@@ -23,9 +23,9 @@
   </div>
 </fieldset>
 <fieldset>
-  <legend>Yubikey Configuration</legend>
+  <legend>Yubikey OTP Configuration</legend>
   <div class='form-group'>
-    <?= $form->label('yubikeyEnabled', t('Enable Yubikey')) ?>
+    <?= $form->label('yubikeyEnabled', t('Enable Yubikey OTP')) ?>
     <?= $form->checkbox('yubikeyEnabled', 1, $yubikeyEnabled) ?>
   </div>
   <div id="yubikey-options" style="display: <?= $yubikeyEnabled ? 'block' : 'none' ?>;">
@@ -35,14 +35,14 @@
     </div>
     <div class='form-group'>
       <?= $form->label('yubikeySecretKey', t('Yubikey Secret Key')) ?>
-      <?= $form->text('yubikeySecretKey', $yubikeySecretKey) ?>
+      <?= $form->password('yubikeySecretKey', $yubikeySecretKey) ?>
     </div>
     <div class='form-group'>
       <?= $form->label('yubikeyServerURI', t('Yubikey Verify URI')) ?>
       <?= $form->text('yubikeyServerURI', $yubikeyServerURI) ?>
     </div>
     <div class='form-group'>
-      <?= $form->label('yubikeyLDAPAtttribute', t('Yubikey LDAP Attribute')) ?>
+      <?= $form->label('yubikeyLDAPAtttribute', t('Yubikey Key ID LDAP Attribute')) ?>
       <?= $form->text('yubikeyLDAPAtttribute', $yubikeyLDAPAtttribute) ?>
     </div>
     <div class='form-group'>

@@ -21,6 +21,10 @@ class Controller extends Package {
     return "LDAP Login";
   }
 
+  public function getPackageAutoloaderRegistries() {
+    return array("library/authentication" => "Library\Authentication");
+  }
+
   public function install() {
     $pkg = parent::install();
     $at = AuthenticationType::add('ldap','LDAP',0,$pkg);

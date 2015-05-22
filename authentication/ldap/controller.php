@@ -1,13 +1,15 @@
 <?php
 namespace Concrete\Package\LdapLogin\Authentication\Ldap;
 
+use Library\Authentication\AuthYubico;
 use Concrete\Core\Authentication\AuthenticationTypeController;
+
+use Config;
+use Exception;
+use Package;
 use User;
 use UserInfo;
 use View;
-use Config;
-use Loader;
-use Exception;
 
 
 class Controller extends AuthenticationTypeController {
@@ -34,6 +36,7 @@ class Controller extends AuthenticationTypeController {
     $this->set('yubikeyClientID',\Config::get('auth.ldap.yubikeyClientID', ''));
     $this->set('yubikeySecretKey',\Config::get('auth.ldap.yubikeySecretKey', ''));
     $this->set('yubikeyServerURI',\Config::get('auth.ldap.yubikeyServerURI', ''));
+    $this->set('yubikeyLDAPAtttribute',\Config::get('auth.ldap.yubikeyLDAPAtttribute', 'pager'));
     $this->set('yubikeyAllowEmptyKey',\Config::get('auth.ldap.yubikeyAllowEmptyKey', false));
 
   }
@@ -49,11 +52,12 @@ class Controller extends AuthenticationTypeController {
     \Config::save('auth.ldap.yubikeyClientID',$args['yubikeyClientID']);
     \Config::save('auth.ldap.yubikeySecretKey',$args['yubikeySecretKey']);
     \Config::save('auth.ldap.yubikeyServerURI',$args['yubikeyServerURI']);
+    \Config::save('auth.ldap.yubikeyLDAPAtttribute',$args['yubikeyLDAPAtttribute']);
     \Config::save('auth.ldap.yubikeyAllowEmptyKey',$args['yubikeyAllowEmptyKey']);
   }
 
   public function getAuthenticationTypeIconHTML() {
-    return "";
+    return '<i class="fa fa-folder"></i>';
   }
 
   private function __connect() {
@@ -74,31 +78,92 @@ class Controller extends AuthenticationTypeController {
     }
   }
 
+  private function yubikeyIsOtp($otp) {
+    if (!preg_match("/^[cbdefghijklnrtuvCBDEFGHIJKLNRTUV]{44}$/", $otp)) {
+      return FALSE;
+    }
+    return TRUE;
+  }
+
 
   public function authenticate() {
+    $valc = Loader::helper('concrete/validation');
     $post = $this->post();
-    if (!isset($post['uName']) || !isset($post['uPassword'])) {
+
+    //Check for empty username and password
+    if (empty($post['uName']) || empty($post['uPassword'])) {
       throw new Exception(t('Please provide both username and password.'));
     }
+
     $uName = $post['uName'];
     $uPassword = $post['uPassword'];
+    $uOTP = $post['uOTP'];
+
+    //Validate username
+    if(!$valc->username($uName)) {
+      throw new \Exception(t('Invalid username or password.'));
+    }
+
+    //Prepare ldap search
+    $searchFilter = \Config::get('auth.ldap.ldapSearchFilter', "(uid=%u)");
+    $searchFilter = str_replace("%u",$uName,$searchFilter);
+
+    //Connect to ldap, do the search and then auth the user
     $this->__connect();
     $search_result = ldap_search($this->ldap_conn,\Config::get('auth.ldap.ldapBaseDN', ''),
-      "(uid=$uName)");
+      $searchFilter);
     if (ldap_count_entries($this->ldap_conn,$search_result)!=1) {
       throw new \Exception(t('Invalid username or password.'));
     }
     $entry = ldap_first_entry($this->ldap_conn,$search_result);
-
+    //get it here because of the new bind.
+    if (\Config::get('auth.ldap.yubikeyEnabled',false)) {
+      $yubikeys = ldap_get_values($this->ldap_conn,$entry,\Config::get('auth.ldap.yubikeyLDAPAtttribute','pager'));
+    }
     $user_bind = ldap_bind($this->ldap_conn,ldap_get_dn($this->ldap_conn,$entry),$uPassword);
     if (!$user_bind) {
       throw new \Exception(t('Invalid username or password.'));
     }
+    ldap_close($this->ldap_conn);
+
+    //Start yubikey two-factor
+    if (\Config::get('auth.ldap.yubikeyEnabled',false)) {
+      if ($yubikeys) {
+        if (!$this->yubikeyIsOtp($uOTP)) {
+          throw new Exception(t('Invalid username or password.'));
+        }
+
+        //Check the otp and then the key id
+        $clientID = \Config::get('auth.ldap.yubikeyClientID','');
+        $secretKey = \Config::get('auth.ldap.yubikeySecretKey','');
+        $https = 1;
+        $yubi = new AuthYubico($clientID,$secretKey,$https);
+        $auth = $yubi->verify($uOTP);
+        if (\PEAR::isError($auth)) {
+          throw new Exception(t('Invalid username or password.'));
+        }
+        $foundKey = 0;
+        foreach ($yubikeys as $yubikey) {
+          if (strcmp($yubikey, substr($uOTP,0,12))==0) {
+            $foundKey = 1;
+            break;
+          }
+        }
+        if (!$foundKey) {
+          throw new Exception(t('Invalid username or password.'));
+        }
+      } else {
+        if (!\Config::get('auth.ldap.yubikeyAllowEmptyKey',false)) {
+          throw new Exception(t('Yubikey is required to login.'));
+        }
+      }
+    }
+
+    //TODO: registration
     $userInfo = UserInfo::getByUserName($uName);
     if (!is_object($userInfo)) {
       throw new \Exception(t('Invalid username or password.'));
     }
-
 
     $user = User::loginByUserID($userInfo->uID);
     if (!is_object($user) || !($user instanceof User) || $user->isError()) {
@@ -133,7 +198,7 @@ class Controller extends AuthenticationTypeController {
   }
 
   public function isAuthenticated(User $u) {
-
+    return $u->isLoggedIn();
   }
 
   public function buildHash(User $u) {
