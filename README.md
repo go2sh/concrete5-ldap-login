@@ -26,6 +26,11 @@ The folloging debian packages are required before installing this concrete packa
  * php5-curl
  * php-pear
 
+## Installation
+To install the package browse to the packages dir of your concrete5 5.7 installation and then run:
+    git clone https://github.com/go2sh/concrete5-ldap-login ldap_login
+It is important that the package directory is called "ldap_login" to match the package handle. Then you can install it from your dashboard.
+
 ##Configuration
 Both the LDAP authentication and the Yubikey OTP authentication are fully configurable.
 ### LDAP Configuration
