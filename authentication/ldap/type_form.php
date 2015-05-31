@@ -21,6 +21,14 @@
     <?= $form->label('ldapSearchFilter', t('LDAP Search Filter')) ?>
     <?= $form->text('ldapSearchFilter', $ldapSearchFilter) ?>
   </div>
+  <div class='form-group'>
+    <?= $form->label('usernameLDAPAttribute', t('Username LDAP Attribute')) ?>
+    <?= $form->text('usernameLDAPAttribute', $usernameLDAPAttribute) ?>
+  </div>
+  <div class='form-group'>
+    <?= $form->label('allowRegistration', t('Allow registration')) ?>
+    <?= $form->checkbox('allowRegistration', 1, $allowRegistration) ?>
+  </div>
 </fieldset>
 <fieldset>
   <legend>Yubikey OTP Configuration</legend>

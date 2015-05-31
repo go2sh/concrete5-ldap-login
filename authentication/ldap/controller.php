@@ -28,6 +28,8 @@ class Controller extends AuthenticationTypeController {
     $this->set('ldapBindDN', Config::get('auth.ldap.ldapBindDN', ''));
     $this->set('ldapBindPassword', Config::get('auth.ldap.ldapBindPassword', ''));
     $this->set('ldapSearchFilter', Config::get('auth.ldap.ldapSearchFilter', ''));
+    $this->set('usernameLDAPAttribute', Config::get('auth.ldap.usernameLDAPAttribute', 'uid'));
+    $this->set('allowRegistration', Config::get('auth.ldap.allowRegistration', false));
     $this->set('yubikeyEnabled', Config::get('auth.ldap.yubikeyEnabled', false));
     $this->set('yubikeyClientID', Config::get('auth.ldap.yubikeyClientID', ''));
     $this->set('yubikeySecretKey', Config::get('auth.ldap.yubikeySecretKey', ''));
@@ -44,6 +46,8 @@ class Controller extends AuthenticationTypeController {
     Config::save('auth.ldap.ldapBindDN',$args['ldapBindDN']);
     Config::save('auth.ldap.ldapBindPassword',$args['ldapBindPassword']);
     Config::save('auth.ldap.ldapSearchFilter',$args['ldapSearchFilter']);
+    Config::save('auth.ldap.usernameLDAPAttribute',$args['usernameLDAPAttribute']);
+    Config::save('auth.ldap.allowRegistration',$args['allowRegistration']);
     Config::save('auth.ldap.yubikeyEnabled',$args['yubikeyEnabled']);
     Config::save('auth.ldap.yubikeyClientID',$args['yubikeyClientID']);
     Config::save('auth.ldap.yubikeySecretKey',$args['yubikeySecretKey']);
@@ -96,14 +100,22 @@ class Controller extends AuthenticationTypeController {
     $uPassword = $post['uPassword'];
     $uOTP = $post['uOTP'];
 
-    //Validate username
-    if(!$valc->username($uName)) {
-      throw new \Exception(t('Invalid username or password.'));
-    }
-
     //Prepare ldap search
-    $searchFilter = \Config::get('auth.ldap.ldapSearchFilter', "(uid=%u)");
-    $searchFilter = str_replace("%u",$uName,$searchFilter);
+    if (Config::get('concrete.user.registration.email_registration')) {
+      //Validate email
+      if(!$vals->email($uName)) {
+        throw new \Exception(t('Invalid username or password.'));
+      }
+      $userFilter = "(mail=".$uName.")";
+    }
+    else {
+      //Validate username
+      if(!$valc->username($uName)) {
+        throw new \Exception(t('Invalid username or password.'));
+      }
+      $userFilter = "(".Config::get('auth.ldap.usernameLDAPAttribute','uid')."=".$uName.")";
+    }
+    $searchFilter = "(&".$userFilter.Config::get('auth.ldap.ldapSearchFilter', "").")";
 
     //Connect to ldap, do the search and then auth the user
     $this->__connect();
@@ -117,7 +129,16 @@ class Controller extends AuthenticationTypeController {
     if (Config::get('auth.ldap.yubikeyEnabled',false)) {
       $yubikeys = ldap_get_values($this->ldapConn,$entry,Config::get('auth.ldap.yubikeyLDAPAtttribute','pager'));
     }
-    $user_bind = ldap_bind($this->ldap_conn,ldap_get_dn($this->ldap_conn,$entry),$uPassword);
+    $attrs = ldap_get_attributes($this->ldapConn,$entry);
+    if (in_array("mail",$attrs)) {
+      $mails = ldap_get_values($this->ldapConn,$entry,"mail");
+    }
+    if (in_array(Config::get('auth.ldap.usernameLDAPAttribute','uid'),$attrs)) {
+      $uids = ldap_get_values($this->ldapConn,$entry,Config::get('auth.ldap.usernameLDAPAttribute','uid'));
+    }
+
+    //Authenticate the user
+    $user_bind = ldap_bind($this->ldapConn,ldap_get_dn($this->ldapConn,$entry),$uPassword);
     if (!$user_bind) {
       throw new \Exception(t('Invalid username or password.'));
     }
@@ -156,10 +177,34 @@ class Controller extends AuthenticationTypeController {
       }
     }
 
-    //TODO: registration
-    $userInfo = UserInfo::getByUserName($uName);
+    if (Config::get('concrete.user.registration.email_registration')) {
+      $userInfo = UserInfo::getByUserName($uName);
+    }
+    else {
+      $userInfo = UserInfo::getByEmail($uName);
+    }
     if (!is_object($userInfo)) {
-      throw new \Exception(t('Invalid username or password.'));
+      if (Config::get('auth.ldap.allowRegistration',false)) {
+        if (empty($uids)) {
+          throw new \Exception(t('No user id found in the directory.'));
+        }
+        if (empty($mails)) {
+          throw new \Exception(t('No email address found in the directory.'));
+        }
+        $data = array();
+        $data['uName'] = $uids[0];
+        $data['uPassword'] = \Illuminate\Support\Str::random(256);
+        $data['uEmail'] = $mails[0];
+        $data['uIsValidated'] = 1;
+
+        $userInfo = UserInfo::add($data);
+        if (!$userInfo) {
+          throw new Exception(t('Unable to create new account.'));
+        }
+      }
+      else {
+        throw new \Exception(t('Invalid username or password.'));
+      }
     }
 
     $user = User::loginByUserID($userInfo->uID);
